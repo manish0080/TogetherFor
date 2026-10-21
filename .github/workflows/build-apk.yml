@@ -29,111 +29,52 @@ jobs:
           unzip -q TogetherFor.zip -d source
           cp -a source/. .
 
-      - name: Automatically fix widget descriptions and apply theme
+      - name: Inject Midnight Rose Theme & Fix Widgets
         shell: bash
         run: |
-          python3 <<'PY'
+          python3 - <<'EOF'
+          import os, re
           from pathlib import Path
-          import re
-          import os
           from xml.sax.saxutils import escape
 
           files = list(Path(".").rglob("widget_1.xml"))
-          if not files:
-              raise SystemExit("ERROR: widget_1.xml not found")
+          if not files: raise SystemExit("ERROR: widget_1.xml not found")
+          project = files[0].parents[5]
 
-          widget = files[0]
-          project = widget.parents[5]
+          res = project / "app/src/main/res"
+          xml_d, val_d = res / "xml", res / "values"
+          draw_d, lay_d = res / "drawable", res / "layout"
+          val_d.mkdir(parents=True, exist_ok=True)
+          draw_d.mkdir(parents=True, exist_ok=True)
 
-          xml_dir = project / "app/src/main/res/xml"
-          values_dir = project / "app/src/main/res/values"
-          drawable_dir = project / "app/src/main/res/drawable"
-          layout_dir = project / "app/src/main/res/layout"
-
-          values_dir.mkdir(parents=True, exist_ok=True)
-          drawable_dir.mkdir(parents=True, exist_ok=True)
-
-          # 1. Widget Descriptions
-          descriptions = {
+          # 1. Descriptions
+          descs = {
               1: "Years Months Days relationship counter",
               2: "Days and clock relationship counter",
               3: "Total hours relationship counter",
               4: "Total minutes relationship counter",
               5: "Total seconds relationship counter",
               6: "Days plus clock relationship counter",
-              7: "Clock only relationship counter",
+              7: "Clock only relationship counter"
           }
-
-          strings_file = values_dir / "strings.xml"
-
-          for number in descriptions:
-              file = xml_dir / f"widget_{number}.xml"
-
-              if not file.exists():
-                  raise SystemExit(f"ERROR: Missing {file}")
-
-              content = file.read_text(encoding="utf-8")
-              reference = (
-                  f'android:description="@string/'
-                  f'widget_{number}_description"'
-              )
-
-              content, count = re.subn(
-                  r'android:description\s*=\s*"[^"]*"',
-                  reference,
-                  content,
-                  count=1
-              )
-
-              if count == 0:
-                  raise SystemExit(
-                      f"ERROR: description attribute not found in {file}"
-                  )
-
-              file.write_text(content, encoding="utf-8")
-              print(f"Fixed {file}")
-
-          if strings_file.exists():
-              content = strings_file.read_text(encoding="utf-8")
-          else:
-              content = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
-
-          if "</resources>" not in content:
-              raise SystemExit("ERROR: Invalid strings.xml")
-
-          for number, description in descriptions.items():
-              name = f"widget_{number}_description"
-              value = escape(description)
-
-              pattern = (
-                  r'<string\s+name="' + re.escape(name) +
-                  r'"[^>]*>.*?</string>'
-              )
-              replacement = f'<string name="{name}">{value}</string>'
-
-              if re.search(pattern, content, flags=re.DOTALL):
-                  content = re.sub(
-                      pattern, replacement, content,
-                      count=1, flags=re.DOTALL
-                  )
+          str_f = val_d / "strings.xml"
+          s_txt = str_f.read_text("utf-8") if str_f.exists() else '<resources>\n</resources>'
+          for n, d in descs.items():
+              w_f = xml_d / f"widget_{n}.xml"
+              if w_f.exists():
+                  w_txt = re.sub(r'android:description\s*=\s*"[^"]*"', f'android:description="@string/widget_{n}_description"', w_f.read_text("utf-8"), count=1)
+                  w_f.write_text(w_txt, "utf-8")
+              tag = f'<string name="widget_{n}_description">{escape(d)}</string>'
+              if f'name="widget_{n}_description"' in s_txt:
+                  s_txt = re.sub(rf'<string\s+name="widget_{n}_description"[^>]*>.*?</string>', tag, s_txt, flags=re.DOTALL)
               else:
-                  content = content.replace(
-                      "</resources>",
-                      f"    {replacement}\n</resources>",
-                      1
-                  )
+                  s_txt = s_txt.replace("</resources>", f"    {tag}\n</resources>")
+          str_f.write_text(s_txt, "utf-8")
 
-          strings_file.write_text(content, encoding="utf-8")
-          print("Strings updated.")
-
-          # 2. Inject Midnight Velvet Colors
-          colors_file = values_dir / "colors.xml"
-          if colors_file.exists():
-              colors_content = colors_file.read_text(encoding="utf-8")
-          else:
-              colors_content = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
-
-          theme_colors = {
+          # 2. Colors Injection
+          col_f = val_d / "colors.xml"
+          c_txt = col_f.read_text("utf-8") if col_f.exists() else '<resources>\n</resources>'
+          colors = {
               "theme_bg_dark": "#120E16",
               "theme_surface": "#1C1624",
               "widget_bg_glass": "#D916111D",
@@ -143,74 +84,56 @@ jobs:
               "text_primary_cream": "#FAF7F2",
               "text_secondary_lavender": "#A89CAD"
           }
+          for k, v in colors.items():
+              if f'name="{k}"' not in c_txt:
+                  c_txt = c_txt.replace("</resources>", f'    <color name="{k}">{v}</color>\n</resources>')
+          col_f.write_text(c_txt, "utf-8")
 
-          for color_name, hex_code in theme_colors.items():
-              c_pattern = r'<color\s+name="' + re.escape(color_name) + r'"[^>]*>.*?</color>'
-              c_repl = f'<color name="{color_name}">{hex_code}</color>'
-              if re.search(c_pattern, colors_content):
-                  colors_content = re.sub(c_pattern, c_repl, colors_content, count=1)
-              else:
-                  colors_content = colors_content.replace(
-                      "</resources>",
-                      f"    {c_repl}\n</resources>",
-                      1
-                  )
-          colors_file.write_text(colors_content, encoding="utf-8")
-          print("Colors injected.")
+          # 3. Adaptive Glass Drawable
+          bg_xml = ('<?xml version="1.0" encoding="utf-8"?>\n'
+                    '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                    '    <solid android:color="@color/widget_bg_glass" />\n'
+                    '    <corners android:radius="24dp" />\n'
+                    '    <stroke android:width="1.2dp" android:color="@color/widget_border_glow" />\n'
+                    '</shape>\n')
+          (draw_d / "widget_bg_adaptive.xml").write_text(bg_xml, "utf-8")
 
-          # 3. Create Adaptive Glass Background
-          drawable_content = (
-              '<?xml version="1.0" encoding="utf-8"?>\n'
-              '<shape xmlns:android="http://schemas.android.com/apk/res/android"\n'
-              '    android:shape="rectangle">\n'
-              '    <solid android:color="@color/widget_bg_glass" />\n'
-              '    <corners android:radius="24dp" />\n'
-              '    <stroke\n'
-              '        android:width="1.2dp"\n'
-              '        android:color="@color/widget_border_glow" />\n'
-              '</shape>\n'
-          )
-          (drawable_dir / "widget_bg_adaptive.xml").write_text(drawable_content, encoding="utf-8")
-          print("Adaptive background created.")
+          # 4. Patch Widget Layouts with Glass Background
+          for n in range(1, 8):
+              w_f = xml_d / f"widget_{n}.xml"
+              if not w_f.exists(): continue
+              m = re.search(r'android:initialLayout="@layout/([^"]+)"', w_f.read_text("utf-8"))
+              if m:
+                  l_f = lay_d / f"{m.group(1)}.xml"
+                  if l_f.exists():
+                      l_txt = l_f.read_text("utf-8")
+                      l_txt = re.sub(r'android:background="[^"]*"', '', l_txt)
+                      l_txt = re.sub(r'(<\w+(?:\.\w+)*)', r'\1 android:background="@drawable/widget_bg_adaptive"', l_txt, count=1)
+                      l_f.write_text(l_txt, "utf-8")
 
-          # 4. Safe Background Replacement on Widget Layouts
-          for number in range(1, 8):
-              w_xml = xml_dir / f"widget_{number}.xml"
-              if not w_xml.exists():
-                  continue
-              w_text = w_xml.read_text(encoding="utf-8")
-              match = re.search(r'android:initialLayout="@layout/([^"]+)"', w_text)
-              if not match:
-                  continue
-              target_layout_name = match.group(1)
-              target_file = layout_dir / f"{target_layout_name}.xml"
-              if not target_file.exists():
-                  continue
+          # 5. Patch Main App Background
+          main_f = lay_d / "activity_main.xml"
+          if main_f.exists():
+              m_txt = main_f.read_text("utf-8")
+              m_txt = re.sub(r'android:background="[^"]*"', '', m_txt)
+              m_txt = re.sub(r'(<\w+(?:\.\w+)*)', r'\1 android:background="@color/theme_bg_dark"', m_txt, count=1)
+              main_f.write_text(m_txt, "utf-8")
 
-              l_text = target_file.read_text(encoding="utf-8")
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"PROJECT_DIR={project.resolve()}\n")
+          print("SUCCESS: Theme injected successfully!")
+          EOF
 
-              def replace_bg(m):
-                  tag_open = m.group(1)
-                  tag_name = m.group(2)
-                  tag_rest = m.group(3)
-                  tag_close = m.group(4)
-                  if 'android:background=' in tag_rest:
-                      tag_rest = re.sub(r'android:background="[^"]*"', 'android:background="@drawable/widget_bg_adaptive"', tag_rest)
-                  else:
-                      tag_rest = f' android:background="@drawable/widget_bg_adaptive"{tag_rest}'
-                  return f"{tag_open}{tag_name}{tag_rest}{tag_close}"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-              l_text = re.sub(r'(<)(\w+(?:\.\w+)*)(\s+[^>]*?)(\/?>)', replace_bg, l_text, count=1)
-              target_file.write_text(l_text, encoding="utf-8")
-              print(f"Applied glass background to {target_layout_name}.xml")
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --stacktrace
 
-          # 5. Check Gradle settings
-          if not (project / "settings.gradle").exists() and not (
-              project / "settings.gradle.kts"
-          ).exists():
-              raise SystemExit(
-                  f"ERROR: Gradle settings file not found in {project}"
-              )
-
-          with open(os.environ["GITHUB_ENV"], "a") as env:
-              env.write(
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherFor-Themed-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
