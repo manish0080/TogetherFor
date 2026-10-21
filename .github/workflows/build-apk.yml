@@ -3,6 +3,9 @@ name: Build TogetherFor APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -10,6 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,7 +27,7 @@ jobs:
       - name: Extract Android project
         run: |
           mkdir source
-          unzip -q TogetherFor-GitHub-Starter-v2.zip -d source
+          unzip -q TogetherFor.zip -d source
           cp -a source/. .
 
       - name: Set up Gradle
@@ -39,4 +43,3 @@ jobs:
         with:
           name: TogetherFor-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-          
