@@ -29,7 +29,7 @@ jobs:
           unzip -q TogetherFor.zip -d source
           cp -a source/. .
 
-      - name: Inject Midnight Rose Theme & Fix Widgets
+      - name: Transform Full App & Widgets to Midnight Rose Gold UI
         shell: bash
         run: |
           python3 - <<'EOF'
@@ -38,16 +38,22 @@ jobs:
           from xml.sax.saxutils import escape
 
           files = list(Path(".").rglob("widget_1.xml"))
-          if not files: raise SystemExit("ERROR: widget_1.xml not found")
+          if not files:
+              raise SystemExit("ERROR: widget_1.xml not found")
           project = files[0].parents[5]
 
           res = project / "app/src/main/res"
-          xml_d, val_d = res / "xml", res / "values"
-          draw_d, lay_d = res / "drawable", res / "layout"
+          xml_d = res / "xml"
+          val_d = res / "values"
+          draw_d = res / "drawable"
+          lay_d = res / "layout"
+
           val_d.mkdir(parents=True, exist_ok=True)
           draw_d.mkdir(parents=True, exist_ok=True)
 
-          # 1. Descriptions
+          # -----------------------------------------------------------
+          # 1. Widget Descriptions & Text Glitch Fix in Strings
+          # -----------------------------------------------------------
           descs = {
               1: "Years Months Days relationship counter",
               2: "Days and clock relationship counter",
@@ -57,71 +63,197 @@ jobs:
               6: "Days plus clock relationship counter",
               7: "Clock only relationship counter"
           }
+
           str_f = val_d / "strings.xml"
-          s_txt = str_f.read_text("utf-8") if str_f.exists() else '<resources>\n</resources>'
+          s_txt = str_f.read_text("utf-8") if str_f.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+
           for n, d in descs.items():
               w_f = xml_d / f"widget_{n}.xml"
               if w_f.exists():
-                  w_txt = re.sub(r'android:description\s*=\s*"[^"]*"', f'android:description="@string/widget_{n}_description"', w_f.read_text("utf-8"), count=1)
-                  w_f.write_text(w_txt, "utf-8")
-              tag = f'<string name="widget_{n}_description">{escape(d)}</string>'
-              if f'name="widget_{n}_description"' in s_txt:
-                  s_txt = re.sub(rf'<string\s+name="widget_{n}_description"[^>]*>.*?</string>', tag, s_txt, flags=re.DOTALL)
+                  w_c = re.sub(r'android:description\s*=\s*"[^"]*"', f'android:description="@string/widget_{n}_description"', w_f.read_text("utf-8"), count=1)
+                  w_f.write_text(w_c, "utf-8")
+
+              name = f"widget_{n}_description"
+              tag = f'<string name="{name}">{escape(d)}</string>'
+              pat = rf'<string\s+name="{name}"[^>]*>.*?</string>'
+              if re.search(pat, s_txt, flags=re.DOTALL):
+                  s_txt = re.sub(pat, tag, s_txt, count=1, flags=re.DOTALL)
               else:
-                  s_txt = s_txt.replace("</resources>", f"    {tag}\n</resources>")
+                  s_txt = s_txt.replace("</resources>", f"    {tag}\n</resources>", 1)
+
+          # Clean literal backslash-n issues
+          s_txt = s_txt.replace(r'\n', '\n')
           str_f.write_text(s_txt, "utf-8")
 
-          # 2. Colors Injection
+          # -----------------------------------------------------------
+          # 2. Inject Luxury Theme Colors (Override defaults too)
+          # -----------------------------------------------------------
           col_f = val_d / "colors.xml"
-          c_txt = col_f.read_text("utf-8") if col_f.exists() else '<resources>\n</resources>'
-          colors = {
+          c_txt = col_f.read_text("utf-8") if col_f.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+
+          luxury_palette = {
               "theme_bg_dark": "#120E16",
               "theme_surface": "#1C1624",
+              "theme_card_bg": "#221A2C",
               "widget_bg_glass": "#D916111D",
               "widget_border_glow": "#4DE5B899",
               "accent_rose_gold": "#E5B899",
               "accent_blush": "#D47A88",
               "text_primary_cream": "#FAF7F2",
-              "text_secondary_lavender": "#A89CAD"
+              "text_secondary_lavender": "#A89CAD",
+              "btn_dark_label": "#120E16",
+              # Override generic white/black defaults so hardcoded views adopt dark mode
+              "white": "#120E16",
+              "black": "#FAF7F2"
           }
-          for k, v in colors.items():
-              if f'name="{k}"' not in c_txt:
-                  c_txt = c_txt.replace("</resources>", f'    <color name="{k}">{v}</color>\n</resources>')
+
+          for k, v in luxury_palette.items():
+              pat = rf'<color\s+name="{k}"[^>]*>.*?</color>'
+              tag = f'<color name="{k}">{v}</color>'
+              if re.search(pat, c_txt):
+                  c_txt = re.sub(pat, tag, c_txt, count=1)
+              else:
+                  c_txt = c_txt.replace("</resources>", f"    {tag}\n</resources>", 1)
+
           col_f.write_text(c_txt, "utf-8")
 
-          # 3. Adaptive Glass Drawable
-          bg_xml = ('<?xml version="1.0" encoding="utf-8"?>\n'
-                    '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
-                    '    <solid android:color="@color/widget_bg_glass" />\n'
-                    '    <corners android:radius="24dp" />\n'
-                    '    <stroke android:width="1.2dp" android:color="@color/widget_border_glow" />\n'
-                    '</shape>\n')
-          (draw_d / "widget_bg_adaptive.xml").write_text(bg_xml, "utf-8")
+          # -----------------------------------------------------------
+          # 3. Create Drawables for Glass Cards and Rose Gold Buttons
+          # -----------------------------------------------------------
+          # Adaptive Widget Glass
+          bg_widget = (
+              '<?xml version="1.0" encoding="utf-8"?>\n'
+              '<shape xmlns:android="http://schemas.android.com/apk/res/android"\n'
+              '    android:shape="rectangle">\n'
+              '    <solid android:color="@color/widget_bg_glass" />\n'
+              '    <corners android:radius="24dp" />\n'
+              '    <stroke android:width="1.2dp" android:color="@color/widget_border_glow" />\n'
+              '</shape>\n'
+          )
+          (draw_d / "widget_bg_adaptive.xml").write_text(bg_widget, "utf-8")
 
-          # 4. Patch Widget Layouts with Glass Background
+          # In-App Luxury Card
+          bg_card = (
+              '<?xml version="1.0" encoding="utf-8"?>\n'
+              '<shape xmlns:android="http://schemas.android.com/apk/res/android"\n'
+              '    android:shape="rectangle">\n'
+              '    <solid android:color="@color/theme_card_bg" />\n'
+              '    <corners android:radius="18dp" />\n'
+              '    <stroke android:width="1dp" android:color="@color/widget_border_glow" />\n'
+              '</shape>\n'
+          )
+          (draw_d / "card_surface_luxury.xml").write_text(bg_card, "utf-8")
+
+          # Premium Rose Gold Button
+          bg_btn = (
+              '<?xml version="1.0" encoding="utf-8"?>\n'
+              '<shape xmlns:android="http://schemas.android.com/apk/res/android"\n'
+              '    android:shape="rectangle">\n'
+              '    <solid android:color="@color/accent_rose_gold" />\n'
+              '    <corners android:radius="24dp" />\n'
+              '</shape>\n'
+          )
+          (draw_d / "btn_rose_gold.xml").write_text(bg_btn, "utf-8")
+
+          # -----------------------------------------------------------
+          # 4. Update Themes & Styles to Pure Dark Midnight
+          # -----------------------------------------------------------
+          for theme_file in val_d.glob("*.xml"):
+              if "theme" in theme_file.name.lower() or "style" in theme_file.name.lower():
+                  t_content = theme_file.read_text("utf-8")
+                  items_to_add = (
+                      '    <item name="android:windowBackground">@color/theme_bg_dark</item>\n'
+                      '    <item name="android:colorBackground">@color/theme_bg_dark</item>\n'
+                      '    <item name="android:textColorPrimary">@color/text_primary_cream</item>\n'
+                      '    <item name="android:textColorSecondary">@color/text_secondary_lavender</item>\n'
+                  )
+                  if "android:windowBackground" not in t_content:
+                      t_content = t_content.replace("</style>", f"{items_to_add}</style>", 1)
+                      theme_file.write_text(t_content, "utf-8")
+
+          # -----------------------------------------------------------
+          # 5. Restyle In-App Layouts (activity_main, items, cards)
+          # -----------------------------------------------------------
+          if lay_d.exists():
+              for l_file in lay_d.glob("*.xml"):
+                  l_txt = l_file.read_text("utf-8")
+
+                  # Style Buttons: change grey buttons into glowing Rose Gold
+                  def patch_button(m):
+                      btn_tag = m.group(0)
+                      # remove hardcoded backgrounds/tints
+                      btn_tag = re.sub(r'android:background="[^"]*"', '', btn_tag)
+                      btn_tag = re.sub(r'android:backgroundTint="[^"]*"', '', btn_tag)
+                      btn_tag = re.sub(r'android:textColor="[^"]*"', '', btn_tag)
+                      close = "/>" if btn_tag.endswith("/>") else ">"
+                      btn_tag = btn_tag[:-len(close)].rstrip()
+                      btn_tag += ' android:background="@drawable/btn_rose_gold" android:textColor="@color/btn_dark_label" android:textStyle="bold"' + close
+                      return btn_tag
+
+                  l_txt = re.sub(r'<(?:Button|com\.google\.android\.material\.button\.MaterialButton)\b[^>]*>', patch_button, l_txt)
+
+                  # Style TextViews: make text visible cream/rose gold
+                  def patch_text(m):
+                      tv_tag = m.group(0)
+                      # If text color is pointing to black/dark or missing
+                      if 'android:textColor=' in tv_tag:
+                          if any(x in tv_tag.lower() for x in ["title", "head", "count", "together"]):
+                              tv_tag = re.sub(r'android:textColor="[^"]*"', 'android:textColor="@color/accent_rose_gold"', tv_tag)
+                          else:
+                              tv_tag = re.sub(r'android:textColor="[^"]*"', 'android:textColor="@color/text_primary_cream"', tv_tag)
+                      else:
+                          close = "/>" if tv_tag.endswith("/>") else ">"
+                          tv_tag = tv_tag[:-len(close)].rstrip()
+                          tv_tag += ' android:textColor="@color/text_primary_cream"' + close
+                      return tv_tag
+
+                  l_txt = re.sub(r'<TextView\b[^>]*>', patch_text, l_txt)
+
+                  # Replace plain backgrounds with dark surfaces
+                  l_txt = re.sub(r'android:background="#[fF]{3,8}"', 'android:background="@color/theme_bg_dark"', l_txt)
+                  l_txt = re.sub(r'android:background="@color/white"', 'android:background="@color/theme_bg_dark"', l_txt)
+
+                  # Set root layout background for activity_main
+                  if "activity_main" in l_file.name:
+                      m = re.search(r'<([a-zA-Z0-9_\.]+)(\s+[^>]*?)(\/?)>', l_txt)
+                      if m:
+                          tag, attrs, close = m.group(1), m.group(2), m.group(3)
+                          if 'android:background=' in attrs:
+                              attrs = re.sub(r'android:background="[^"]*"', 'android:background="@color/theme_bg_dark"', attrs)
+                          else:
+                              attrs = attrs + ' android:background="@color/theme_bg_dark"'
+                          l_txt = l_txt[:m.start()] + f'<{tag}{attrs}{close}>' + l_txt[m.end():]
+
+                  l_file.write_text(l_txt, "utf-8")
+
+          # -----------------------------------------------------------
+          # 6. Apply Adaptive Glass to Widget Layouts
+          # -----------------------------------------------------------
           for n in range(1, 8):
               w_f = xml_d / f"widget_{n}.xml"
-              if not w_f.exists(): continue
-              m = re.search(r'android:initialLayout="@layout/([^"]+)"', w_f.read_text("utf-8"))
-              if m:
-                  l_f = lay_d / f"{m.group(1)}.xml"
-                  if l_f.exists():
-                      l_txt = l_f.read_text("utf-8")
-                      l_txt = re.sub(r'android:background="[^"]*"', '', l_txt)
-                      l_txt = re.sub(r'(<\w+(?:\.\w+)*)', r'\1 android:background="@drawable/widget_bg_adaptive"', l_txt, count=1)
-                      l_f.write_text(l_txt, "utf-8")
+              if w_f.exists():
+                  m = re.search(r'android:initialLayout="@layout/([^"]+)"', w_f.read_text("utf-8"))
+                  if m:
+                      wf_path = lay_d / f"{m.group(1)}.xml"
+                      if wf_path.exists():
+                          txt = wf_path.read_text("utf-8")
+                          rm = re.search(r'<([a-zA-Z0-9_\.]+)(\s+[^>]*?)(\/?)>', txt)
+                          if rm:
+                              tag, attrs, close = rm.group(1), rm.group(2), rm.group(3)
+                              if 'android:background=' in attrs:
+                                  attrs = re.sub(r'android:background="[^"]*"', 'android:background="@drawable/widget_bg_adaptive"', attrs)
+                              else:
+                                  attrs = attrs + ' android:background="@drawable/widget_bg_adaptive"'
+                              txt = txt[:rm.start()] + f'<{tag}{attrs}{close}>' + txt[rm.end():]
+                              wf_path.write_text(txt, "utf-8")
 
-          # 5. Patch Main App Background
-          main_f = lay_d / "activity_main.xml"
-          if main_f.exists():
-              m_txt = main_f.read_text("utf-8")
-              m_txt = re.sub(r'android:background="[^"]*"', '', m_txt)
-              m_txt = re.sub(r'(<\w+(?:\.\w+)*)', r'\1 android:background="@color/theme_bg_dark"', m_txt, count=1)
-              main_f.write_text(m_txt, "utf-8")
+          if not (project / "settings.gradle").exists() and not (project / "settings.gradle.kts").exists():
+              raise SystemExit(f"ERROR: Gradle settings file not found in {project}")
 
           with open(os.environ["GITHUB_ENV"], "a") as f:
               f.write(f"PROJECT_DIR={project.resolve()}\n")
-          print("SUCCESS: Theme injected successfully!")
+
+          print("App In-Screen UI & Widgets transformed to Midnight Rose Gold!")
           EOF
 
       - name: Set up Gradle
@@ -134,6 +266,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TogetherFor-Themed-debug-apk
+          name: TogetherFor-debug-apk
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
