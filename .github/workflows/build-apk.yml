@@ -3,59 +3,147 @@ name: Build TogetherFor APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Check ZIP file
-        run: |
-          if [ ! -f "TogetherFor.zip" ]; then
-            echo "ERROR: TogetherFor.zip not found in repository root."
-            echo "Files available in repository:"
-            ls -la
-            exit 1
-          fi
-
       - name: Extract Android project
         run: |
-          mkdir -p project
-          unzip -q TogetherFor.zip -d project
-          echo "Extracted project files:"
-          find project -maxdepth 3 -type f | head -80
+          mkdir -p source
+          unzip -q TogetherFor.zip -d source
+          cp -a source/. .
 
-          if [ ! -f "project/settings.gradle" ] && \
-             [ ! -f "project/settings.gradle.kts" ]; then
-            echo "ERROR: settings.gradle not found at ZIP root."
-            exit 1
-          fi
+      - name: Automatically fix widget descriptions
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+          import os
+          from xml.sax.saxutils import escape
+
+          files = list(Path(".").rglob("widget_1.xml"))
+          if not files:
+              raise SystemExit("ERROR: widget_1.xml not found")
+
+          widget = files[0]
+          project = widget.parents[5]
+
+          descriptions = {
+              1: "Years Months Days relationship counter",
+              2: "Days and clock relationship counter",
+              3: "Total hours relationship counter",
+              4: "Total minutes relationship counter",
+              5: "Total seconds relationship counter",
+              6: "Days plus clock relationship counter",
+              7: "Clock only relationship counter",
+          }
+
+          xml_dir = project / "app/src/main/res/xml"
+          values_dir = project / "app/src/main/res/values"
+          values_dir.mkdir(parents=True, exist_ok=True)
+          strings_file = values_dir / "strings.xml"
+
+          for number in descriptions:
+              file = xml_dir / f"widget_{number}.xml"
+
+              if not file.exists():
+                  raise SystemExit(f"ERROR: Missing {file}")
+
+              content = file.read_text(encoding="utf-8")
+              reference = (
+                  f'android:description="@string/'
+                  f'widget_{number}_description"'
+              )
+
+              content, count = re.subn(
+                  r'android:description\s*=\s*"[^"]*"',
+                  reference,
+                  content,
+                  count=1
+              )
+
+              if count == 0:
+                  raise SystemExit(
+                      f"ERROR: description attribute not found in {file}"
+                  )
+
+              file.write_text(content, encoding="utf-8")
+              print(f"Fixed {file}")
+
+          if strings_file.exists():
+              content = strings_file.read_text(encoding="utf-8")
+          else:
+              content = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+
+          if "</resources>" not in content:
+              raise SystemExit("ERROR: Invalid strings.xml")
+
+          for number, description in descriptions.items():
+              name = f"widget_{number}_description"
+              value = escape(description)
+
+              pattern = (
+                  r'<string\s+name="' + re.escape(name) +
+                  r'"[^>]*>.*?</string>'
+              )
+              replacement = f'<string name="{name}">{value}</string>'
+
+              if re.search(pattern, content, flags=re.DOTALL):
+                  content = re.sub(
+                      pattern, replacement, content,
+                      count=1, flags=re.DOTALL
+                  )
+              else:
+                  content = content.replace(
+                      "</resources>",
+                      f"    {replacement}\n</resources>",
+                      1
+                  )
+
+          strings_file.write_text(content, encoding="utf-8")
+
+          if not (project / "settings.gradle").exists() and not (
+              project / "settings.gradle.kts"
+          ).exists():
+              raise SystemExit(
+                  f"ERROR: Gradle settings file not found in {project}"
+              )
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"PROJECT_DIR={project.resolve()}\n")
+
+          print("All seven widget descriptions have been repaired.")
+          print(f"Project directory: {project.resolve()}")
+          PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
 
-      - name: Build debug APK
-        working-directory: project
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TogetherFor-debug-apk
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
