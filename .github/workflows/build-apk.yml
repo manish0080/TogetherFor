@@ -18,141 +18,132 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Extract Android project
-        shell: bash
         run: |
-          set -e
           mkdir -p source
+          unzip -q TogetherFor.zip -d source
+          cp -a source/. .
 
-          if [ -f "TogetherFor.zip" ]; then
-            unzip -oq "TogetherFor.zip" -d source
-          else
-            echo "ERROR: TogetherFor.zip not found in repository root"
-            ls -la
-            exit 1
-          fi
-
-          echo "Extracted files:"
-          find source -maxdepth 4 -type f | head -100
-
-      - name: Locate Android project
+      - name: Automatically fix widget descriptions
         shell: bash
         run: |
-          set -e
-          if [ -f "source/project/gradlew" ]; then
-            echo "PROJECT_DIR=source/project" >> "$GITHUB_ENV"
-          elif [ -f "source/gradlew" ]; then
-            echo "PROJECT_DIR=source" >> "$GITHUB_ENV"
-          else
-            echo "ERROR: gradlew not found inside extracted ZIP"
-            find source -name gradlew -o -name settings.gradle -o -name settings.gradle.kts
-            exit 1
-          fi
-
-      - name: Fix widget descriptions
-        shell: bash
-        run: |
-          set -e
-          RES="$PROJECT_DIR/app/src/main/res"
-          STRINGS="$RES/values/strings.xml"
-
-          mkdir -p "$RES/values"
-
-          if [ ! -f "$STRINGS" ]; then
-            printf '%s\n' \
-              '<?xml version="1.0" encoding="utf-8"?>' \
-              '<resources>' \
-              '    <string name="widget_desc_1">Years Months Days relationship counter</string>' \
-              '    <string name="widget_desc_2">Days and clock relationship counter</string>' \
-              '    <string name="widget_desc_3">Total hours relationship counter</string>' \
-              '    <string name="widget_desc_4">Total minutes relationship counter</string>' \
-              '    <string name="widget_desc_5">Total seconds relationship counter</string>' \
-              '    <string name="widget_desc_6">Days plus clock relationship counter</string>' \
-              '    <string name="widget_desc_7">Clock only relationship counter</string>' \
-              '</resources>' > "$STRINGS"
-          else
-            python3 - "$STRINGS" <<'PY'
-          import sys
-          import xml.etree.ElementTree as ET
-
-          path = sys.argv[1]
-          tree = ET.parse(path)
-          root = tree.getroot()
-
-          descriptions = {
-              "widget_desc_1": "Years Months Days relationship counter",
-              "widget_desc_2": "Days and clock relationship counter",
-              "widget_desc_3": "Total hours relationship counter",
-              "widget_desc_4": "Total minutes relationship counter",
-              "widget_desc_5": "Total seconds relationship counter",
-              "widget_desc_6": "Days plus clock relationship counter",
-              "widget_desc_7": "Clock only relationship counter",
-          }
-
-          existing = {e.get("name") for e in root.findall("string")}
-          for name, value in descriptions.items():
-              if name not in existing:
-                  element = ET.SubElement(root, "string", {"name": name})
-                  element.text = value
-
-          tree.write(path, encoding="utf-8", xml_declaration=True)
-          PY
-          fi
-
-          python3 - "$RES/xml" <<'PY'
-          import sys
-          import pathlib
+          python3 <<'PY'
+          from pathlib import Path
           import re
+          import os
+          from xml.sax.saxutils import escape
 
-          folder = pathlib.Path(sys.argv[1])
+          files = list(Path(".").rglob("widget_1.xml"))
+          if not files:
+              raise SystemExit("ERROR: widget_1.xml not found")
+
+          widget = files[0]
+          project = widget.parents[5]
+
           descriptions = {
-              "widget_1.xml": "@string/widget_desc_1",
-              "widget_2.xml": "@string/widget_desc_2",
-              "widget_3.xml": "@string/widget_desc_3",
-              "widget_4.xml": "@string/widget_desc_4",
-              "widget_5.xml": "@string/widget_desc_5",
-              "widget_6.xml": "@string/widget_desc_6",
-              "widget_7.xml": "@string/widget_desc_7",
+              1: "Years Months Days relationship counter",
+              2: "Days and clock relationship counter",
+              3: "Total hours relationship counter",
+              4: "Total minutes relationship counter",
+              5: "Total seconds relationship counter",
+              6: "Days plus clock relationship counter",
+              7: "Clock only relationship counter",
           }
 
-          for filename, reference in descriptions.items():
-              path = folder / filename
-              if not path.exists():
-                  continue
-              content = path.read_text(encoding="utf-8")
+          xml_dir = project / "app/src/main/res/xml"
+          values_dir = project / "app/src/main/res/values"
+          values_dir.mkdir(parents=True, exist_ok=True)
+          strings_file = values_dir / "strings.xml"
+
+          for number in descriptions:
+              file = xml_dir / f"widget_{number}.xml"
+
+              if not file.exists():
+                  raise SystemExit(f"ERROR: Missing {file}")
+
+              content = file.read_text(encoding="utf-8")
+              reference = (
+                  f'android:description="@string/'
+                  f'widget_{number}_description"'
+              )
+
               content, count = re.subn(
                   r'android:description\s*=\s*"[^"]*"',
-                  f'android:description="{reference}"',
+                  reference,
                   content,
                   count=1
               )
-              if count:
-                  path.write_text(content, encoding="utf-8")
-                  print(f"Fixed {filename}")
+
+              if count == 0:
+                  raise SystemExit(
+                      f"ERROR: description attribute not found in {file}"
+                  )
+
+              file.write_text(content, encoding="utf-8")
+              print(f"Fixed {file}")
+
+          if strings_file.exists():
+              content = strings_file.read_text(encoding="utf-8")
+          else:
+              content = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+
+          if "</resources>" not in content:
+              raise SystemExit("ERROR: Invalid strings.xml")
+
+          for number, description in descriptions.items():
+              name = f"widget_{number}_description"
+              value = escape(description)
+
+              pattern = (
+                  r'<string\s+name="' + re.escape(name) +
+                  r'"[^>]*>.*?</string>'
+              )
+              replacement = f'<string name="{name}">{value}</string>'
+
+              if re.search(pattern, content, flags=re.DOTALL):
+                  content = re.sub(
+                      pattern, replacement, content,
+                      count=1, flags=re.DOTALL
+                  )
               else:
-                  print(f"No description attribute changed in {filename}")
+                  content = content.replace(
+                      "</resources>",
+                      f"    {replacement}\n</resources>",
+                      1
+                  )
+
+          strings_file.write_text(content, encoding="utf-8")
+
+          if not (project / "settings.gradle").exists() and not (
+              project / "settings.gradle.kts"
+          ).exists():
+              raise SystemExit(
+                  f"ERROR: Gradle settings file not found in {project}"
+              )
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"PROJECT_DIR={project.resolve()}\n")
+
+          print("All seven widget descriptions have been repaired.")
+          print(f"Project directory: {project.resolve()}")
           PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build APK
-        shell: bash
-        run: |
-          set -e
-          cd "$PROJECT_DIR"
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TogetherFor-debug-apk
-          path: source/project/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
