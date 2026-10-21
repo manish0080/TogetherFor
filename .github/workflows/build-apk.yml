@@ -29,7 +29,7 @@ jobs:
           unzip -q TogetherFor.zip -d source
           cp -a source/. .
 
-      - name: Inject Exact Luxury UI Matching Mockup
+      - name: Patch UI and Prepare Build
         shell: bash
         run: |
           python3 - <<'EOF'
@@ -37,142 +37,83 @@ jobs:
           from pathlib import Path
           from xml.sax.saxutils import escape
 
-          # 1. Project Directory Finder
-          settings = list(Path(".").rglob("settings.gradle*"))
-          if not settings:
-              raise SystemExit("ERROR: settings.gradle not found")
-          project = settings[0].parent
-
-          res_dirs = list(project.rglob("src/main/res"))
-          if not res_dirs:
-              raise SystemExit("ERROR: src/main/res not found")
-          res = res_dirs[0]
-          src_main = res.parent
-
-          val_d = res / "values"
-          draw_d = res / "drawable"
-          xml_d = res / "xml"
-          lay_d = res / "layout"
-
+          files = list(Path(".").rglob("widget_1.xml"))
+          if not files: raise SystemExit("ERROR: widget_1.xml not found")
+          project = files[0].parents[5]
+          res = project / "app/src/main/res"
+          src = project / "app/src/main"
+          val_d, draw_d = res / "values", res / "drawable"
           val_d.mkdir(parents=True, exist_ok=True)
           draw_d.mkdir(parents=True, exist_ok=True)
 
-          # 2. Fix Strings, Descriptions & Literal \n Bug
-          descs = {
-              1: "Years Months Days relationship counter",
-              2: "Days and clock relationship counter",
-              3: "Total hours relationship counter",
-              4: "Total minutes relationship counter",
-              5: "Total seconds relationship counter",
-              6: "Days plus clock relationship counter",
-              7: "Clock only relationship counter"
-          }
-
-          str_f = val_d / "strings.xml"
-          s_txt = str_f.read_text("utf-8") if str_f.exists() else '<resources>\n</resources>\n'
-
+          # 1. Descriptions & Text Glitch Fix
+          descs = {1: "Years Months Days relationship counter", 2: "Days and clock relationship counter", 3: "Total hours relationship counter", 4: "Total minutes relationship counter", 5: "Total seconds relationship counter", 6: "Days plus clock relationship counter", 7: "Clock only relationship counter"}
+          s_file = val_d / "strings.xml"
+          s_txt = s_file.read_text("utf-8") if s_file.exists() else '<resources>\n</resources>'
           for n, d in descs.items():
-              w_f = xml_d / f"widget_{n}.xml"
-              if w_f.exists():
-                  w_c = re.sub(r'android:description\s*=\s*"[^"]*"', f'android:description="@string/widget_{n}_description"', w_f.read_text("utf-8"), count=1)
-                  w_f.write_text(w_c, "utf-8")
-              name = f"widget_{n}_description"
-              tag = f'<string name="{name}">{escape(d)}</string>'
-              pat = rf'<string\s+name="{name}"[^>]*>.*?</string>'
-              if re.search(pat, s_txt, flags=re.DOTALL):
-                  s_txt = re.sub(pat, tag, s_txt, count=1, flags=re.DOTALL)
-              else:
-                  s_txt = s_txt.replace("</resources>", f"    {tag}\n</resources>", 1)
-
-          # Clean backslash-n artifact from screenshot
+              wf = res / f"xml/widget_{n}.xml"
+              if wf.exists():
+                  wf.write_text(re.sub(r'android:description\s*=\s*"[^"]*"', f'android:description="@string/widget_{n}_description"', wf.read_text("utf-8")), "utf-8")
+              tag = f'<string name="widget_{n}_description">{escape(d)}</string>'
+              s_txt = re.sub(rf'<string\s+name="widget_{n}_description"[^>]*>.*?</string>', tag, s_txt) if f'name="widget_{n}_description"' in s_txt else s_txt.replace("</resources>", f"    {tag}\n</resources>")
           s_txt = s_txt.replace(r'\n', ' ').replace(r'\\n', ' ')
-          # Update Button label to match photo
-          s_txt = re.sub(r'>\+ ADD<', '>+ Add Counter/Person<', s_txt)
-          s_txt = re.sub(r'>\+ Add<', '>+ Add Counter/Person<', s_txt)
-          str_f.write_text(s_txt, "utf-8")
+          s_file.write_text(s_txt, "utf-8")
 
-          # 3. Luxury Midnight Velvet & Rose Gold Palette
-          col_f = val_d / "colors.xml"
-          c_txt = col_f.read_text("utf-8") if col_f.exists() else '<resources>\n</resources>\n'
-
-          colors = {
-              "theme_bg_dark": "#120E16",
-              "theme_surface": "#1E1724",
-              "theme_card_border": "#3D2B3F",
-              "widget_bg_glass": "#D916111D",
-              "widget_border_glow": "#4DE5B899",
-              "accent_rose_gold": "#E5B899",
-              "accent_blush": "#D47A88",
-              "text_primary_cream": "#FAF7F2",
-              "text_secondary_lavender": "#A89CAD",
-              "btn_dark_label": "#120E16",
-              "white": "#120E16"
-          }
-
+          # 2. Colors & Drawables
+          c_file = val_d / "colors.xml"
+          c_txt = c_file.read_text("utf-8") if c_file.exists() else '<resources>\n</resources>'
+          colors = {"theme_bg": "#120E16", "theme_surface": "#1E1724", "widget_glass": "#D916111D", "rose_gold": "#E5B899", "cream": "#FAF7F2", "btn_dark": "#120E16", "white": "#120E16"}
           for k, v in colors.items():
-              pat = rf'<color\s+name="{k}"[^>]*>.*?</color>'
-              tag = f'<color name="{k}">{v}</color>'
-              if re.search(pat, c_txt):
-                  c_txt = re.sub(pat, tag, c_txt, count=1)
-              else:
-                  c_txt = c_txt.replace("</resources>", f"    {tag}\n</resources>", 1)
-          col_f.write_text(c_txt, "utf-8")
+              if f'name="{k}"' not in c_txt: c_txt = c_txt.replace("</resources>", f'    <color name="{k}">{v}</color>\n</resources>')
+          c_file.write_text(c_txt, "utf-8")
 
-          # 4. Generate Drawables (Card Surface, Pill Buttons, Glass Widgets)
-          (draw_d / "widget_bg_adaptive.xml").write_text(
-              '<?xml version="1.0" encoding="utf-8"?>\n'
-              '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
-              '    <solid android:color="@color/widget_bg_glass" />\n'
-              '    <corners android:radius="24dp" />\n'
-              '    <stroke android:width="1.2dp" android:color="@color/widget_border_glow" />\n'
-              '</shape>\n', encoding="utf-8"
-          )
+          (draw_d / "widget_bg_adaptive.xml").write_text('<shape xmlns:android="http://schemas.android.com/apk/res/android"><solid android:color="@color/widget_glass"/><corners android:radius="24dp"/><stroke android:width="1.2dp" android:color="#4DE5B899"/></shape>', "utf-8")
+          (draw_d / "btn_rose_gold.xml").write_text('<shape xmlns:android="http://schemas.android.com/apk/res/android"><solid android:color="@color/rose_gold"/><corners android:radius="28dp"/></shape>', "utf-8")
 
-          # Sleek Card Surface for Time & Milestones
-          (draw_d / "card_surface_luxury.xml").write_text(
-              '<?xml version="1.0" encoding="utf-8"?>\n'
-              '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
-              '    <solid android:color="@color/theme_surface" />\n'
-              '    <corners android:radius="22dp" />\n'
-              '    <stroke android:width="1dp" android:color="@color/theme_card_border" />\n'
-              '</shape>\n', encoding="utf-8"
-          )
-
-          # Bottom Rounded Pill Button from Mockup Photo
-          (draw_d / "btn_rose_gold.xml").write_text(
-              '<?xml version="1.0" encoding="utf-8"?>\n'
-              '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
-              '    <solid android:color="@color/accent_rose_gold" />\n'
-              '    <corners android:radius="30dp" />\n'
-              '</shape>\n', encoding="utf-8"
-          )
-
-          # 5. Overhaul Themes & Styles (Dark Velvet Window + Status Bar Fix)
-          theme_injection = (
-              '    <item name="android:windowBackground">@color/theme_bg_dark</item>\n'
-              '    <item name="android:colorBackground">@color/theme_bg_dark</item>\n'
-              '    <item name="colorSurface">@color/theme_surface</item>\n'
-              '    <item name="colorPrimary">@color/accent_rose_gold</item>\n'
-              '    <item name="colorOnPrimary">@color/btn_dark_label</item>\n'
-              '    <item name="colorOnBackground">@color/text_primary_cream</item>\n'
-              '    <item name="colorOnSurface">@color/text_primary_cream</item>\n'
-              '    <item name="android:textColorPrimary">@color/text_primary_cream</item>\n'
-              '    <item name="android:textColorSecondary">@color/text_secondary_lavender</item>\n'
-              '    <item name="android:statusBarColor">@color/theme_bg_dark</item>\n'
-              '    <item name="android:windowLightStatusBar">false</item>\n'
-              '    <item name="android:navigationBarColor">@color/theme_bg_dark</item>\n'
-          )
+          # 3. Themes: Force dark background & dark status bar
+          theme_items = '<item name="android:windowBackground">@color/theme_bg</item><item name="android:colorBackground">@color/theme_bg</item><item name="colorSurface">@color/theme_surface</item><item name="colorPrimary">@color/rose_gold</item><item name="android:statusBarColor">@color/theme_bg</item><item name="android:windowLightStatusBar">false</item><item name="android:textColorPrimary">@color/cream</item>'
           for tf in res.rglob("*.xml"):
               if tf.parent.name.startswith("values") and any(x in tf.name.lower() for x in ["theme", "style"]):
-                  t_content = tf.read_text("utf-8")
-                  t_content = re.sub(r'parent="Theme\.(?:Material3|MaterialComponents)\.Light', 'parent="Theme.Material3.DayNight', t_content)
-                  t_content = re.sub(r'<item name="android:windowLightStatusBar">true</item>', '<item name="android:windowLightStatusBar">false</item>', t_content)
-                  if "theme_bg_dark" not in t_content and "</style>" in t_content:
-                      t_content = t_content.replace("</style>", theme_injection + "</style>", 1)
-                  tf.write_text(t_content, "utf-8")
+                  t_c = re.sub(r'parent="Theme\.(?:Material3|MaterialComponents)\.Light', 'parent="Theme.Material3.DayNight', tf.read_text("utf-8"))
+                  t_c = re.sub(r'<item name="android:windowLightStatusBar">true</item>', '<item name="android:windowLightStatusBar">false</item>', t_c)
+                  if "@color/theme_bg" not in t_c and "</style>" in t_c:
+                      t_c = t_c.replace("</style>", f"    {theme_items}\n</style>", 1)
+                  tf.write_text(t_c, "utf-8")
 
-          # 6. Apply Exact Layout Styling to In-App Screens
+          # 4. Layouts: Backgrounds, Top padding (52dp clears notch/status bar), Rose gold pill buttons
           for lf in res.rglob("layout*/*.xml"):
-              l_txt = lf.read_text("utf-8")
-              is_widget = "widget" in lf.name.lower()
+              txt = lf.read_text("utf-8")
+              is_w = "widget" in lf.name.lower()
+              m = re.search(r'(<[a-zA-Z0-9_\.]+\b)([^>]*?)(\/?>)', txt)
+              if m and not m.group(1).startswith("<?xml"):
+                  bg = "@drawable/widget_bg_adaptive" if is_w else "@color/theme_bg"
+                  at = re.sub(r'android:background="[^"]*"', '', m.group(2))
+                  extra = f' android:background="{bg}"' if is_w else f' android:background="{bg}" android:paddingTop="52dp" android:paddingStart="18dp" android:paddingEnd="18dp"'
+                  txt = txt[:m.start()] + m.group(1) + at + extra + m.group(3) + txt[m.end():]
+              txt = re.sub(r'<(?:Button|com\.google\.android\.material\.button\.MaterialButton|androidx\.appcompat\.widget\.AppCompatButton)\b([^>]*?)(\/?>)', r'<Button\1 android:background="@drawable/btn_rose_gold" android:textColor="@color/btn_dark" android:textStyle="bold"\2', txt)
+              txt = re.sub(r'android:textColor="(?:#[0-9a-fA-F]{3,8}|@android:color/black|@color/black)"', 'android:textColor="@color/cream"', txt)
+              lf.write_text(txt, "utf-8")
 
+          # 5. Disable EdgeToEdge in code so 52dp padding takes full effect
+          for code_f in src.rglob("*"):
+              if code_f.suffix in [".kt", ".java"]:
+                  code_f.write_text(re.sub(r'\benableEdgeToEdge\(\);?', '// disabled edgeToEdge', code_f.read_text("utf-8")), "utf-8")
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"PROJECT_DIR={project.resolve()}\n")
+          print("Ready to compile APK!")
+          EOF
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TogetherFor-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
