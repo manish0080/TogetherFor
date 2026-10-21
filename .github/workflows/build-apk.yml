@@ -29,16 +29,15 @@ jobs:
           unzip -q TogetherFor.zip -d source
           cp -a source/. .
 
-      - name: Apply Midnight Velvet Theme Across Entire App
+      - name: Inject Exact Luxury UI Matching Mockup
         shell: bash
         run: |
-          python3 <<'PY'
-          import os
-          import re
+          python3 - <<'EOF'
+          import os, re
           from pathlib import Path
           from xml.sax.saxutils import escape
 
-          # 1. Project directory
+          # 1. Project Directory Finder
           settings = list(Path(".").rglob("settings.gradle*"))
           if not settings:
               raise SystemExit("ERROR: settings.gradle not found")
@@ -53,11 +52,12 @@ jobs:
           val_d = res / "values"
           draw_d = res / "drawable"
           xml_d = res / "xml"
+          lay_d = res / "layout"
 
           val_d.mkdir(parents=True, exist_ok=True)
           draw_d.mkdir(parents=True, exist_ok=True)
 
-          # 2. Fix widget descriptions and remove literal \n glitch
+          # 2. Fix Strings, Descriptions & Literal \n Bug
           descs = {
               1: "Years Months Days relationship counter",
               2: "Days and clock relationship counter",
@@ -84,26 +84,32 @@ jobs:
               else:
                   s_txt = s_txt.replace("</resources>", f"    {tag}\n</resources>", 1)
 
-          s_txt = s_txt.replace(r'\n', '\n').replace(r'\\n', '\n')
+          # Clean backslash-n artifact from screenshot
+          s_txt = s_txt.replace(r'\n', ' ').replace(r'\\n', ' ')
+          # Update Button label to match photo
+          s_txt = re.sub(r'>\+ ADD<', '>+ Add Counter/Person<', s_txt)
+          s_txt = re.sub(r'>\+ Add<', '>+ Add Counter/Person<', s_txt)
           str_f.write_text(s_txt, "utf-8")
 
-          # 3. Inject Luxury Colors
+          # 3. Luxury Midnight Velvet & Rose Gold Palette
           col_f = val_d / "colors.xml"
           c_txt = col_f.read_text("utf-8") if col_f.exists() else '<resources>\n</resources>\n'
 
-          palette = {
+          colors = {
               "theme_bg_dark": "#120E16",
-              "theme_surface": "#1C1624",
+              "theme_surface": "#1E1724",
+              "theme_card_border": "#3D2B3F",
               "widget_bg_glass": "#D916111D",
               "widget_border_glow": "#4DE5B899",
               "accent_rose_gold": "#E5B899",
               "accent_blush": "#D47A88",
               "text_primary_cream": "#FAF7F2",
               "text_secondary_lavender": "#A89CAD",
-              "btn_dark_label": "#120E16"
+              "btn_dark_label": "#120E16",
+              "white": "#120E16"
           }
 
-          for k, v in palette.items():
+          for k, v in colors.items():
               pat = rf'<color\s+name="{k}"[^>]*>.*?</color>'
               tag = f'<color name="{k}">{v}</color>'
               if re.search(pat, c_txt):
@@ -112,27 +118,36 @@ jobs:
                   c_txt = c_txt.replace("</resources>", f"    {tag}\n</resources>", 1)
           col_f.write_text(c_txt, "utf-8")
 
-          # 4. Generate Drawables
-          bg_widget = (
+          # 4. Generate Drawables (Card Surface, Pill Buttons, Glass Widgets)
+          (draw_d / "widget_bg_adaptive.xml").write_text(
               '<?xml version="1.0" encoding="utf-8"?>\n'
-              '<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">\n'
+              '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
               '    <solid android:color="@color/widget_bg_glass" />\n'
               '    <corners android:radius="24dp" />\n'
               '    <stroke android:width="1.2dp" android:color="@color/widget_border_glow" />\n'
-              '</shape>\n'
+              '</shape>\n', encoding="utf-8"
           )
-          (draw_d / "widget_bg_adaptive.xml").write_text(bg_widget, "utf-8")
 
-          bg_btn = (
+          # Sleek Card Surface for Time & Milestones
+          (draw_d / "card_surface_luxury.xml").write_text(
               '<?xml version="1.0" encoding="utf-8"?>\n'
-              '<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">\n'
-              '    <solid android:color="@color/accent_rose_gold" />\n'
-              '    <corners android:radius="24dp" />\n'
-              '</shape>\n'
+              '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
+              '    <solid android:color="@color/theme_surface" />\n'
+              '    <corners android:radius="22dp" />\n'
+              '    <stroke android:width="1dp" android:color="@color/theme_card_border" />\n'
+              '</shape>\n', encoding="utf-8"
           )
-          (draw_d / "btn_rose_gold.xml").write_text(bg_btn, "utf-8")
 
-          # 5. Overhaul Themes & Styles
+          # Bottom Rounded Pill Button from Mockup Photo
+          (draw_d / "btn_rose_gold.xml").write_text(
+              '<?xml version="1.0" encoding="utf-8"?>\n'
+              '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
+              '    <solid android:color="@color/accent_rose_gold" />\n'
+              '    <corners android:radius="30dp" />\n'
+              '</shape>\n', encoding="utf-8"
+          )
+
+          # 5. Overhaul Themes & Styles (Dark Velvet Window + Status Bar Fix)
           theme_injection = (
               '    <item name="android:windowBackground">@color/theme_bg_dark</item>\n'
               '    <item name="android:colorBackground">@color/theme_bg_dark</item>\n'
@@ -156,78 +171,8 @@ jobs:
                       t_content = t_content.replace("</style>", theme_injection + "</style>", 1)
                   tf.write_text(t_content, "utf-8")
 
-          # 6. Restyle Layouts (Root Background, Buttons & Typography)
+          # 6. Apply Exact Layout Styling to In-App Screens
           for lf in res.rglob("layout*/*.xml"):
               l_txt = lf.read_text("utf-8")
               is_widget = "widget" in lf.name.lower()
 
-              root_m = re.search(r'(<[a-zA-Z0-9_\.]+\b)([^>]*?)(\/?>)', l_txt)
-              if root_m and not root_m.group(1).startswith("<?xml"):
-                  tg, at, cl = root_m.group(1), root_m.group(2), root_m.group(3)
-                  chosen_bg = "@drawable/widget_bg_adaptive" if is_widget else "@color/theme_bg_dark"
-                  if 'android:background=' in at:
-                      at = re.sub(r'android:background="[^"]*"', f'android:background="{chosen_bg}"', at)
-                  else:
-                      at = f' android:background="{chosen_bg}"' + at
-                  l_txt = l_txt[:root_m.start()] + tg + at + cl + l_txt[root_m.end():]
-
-              l_txt = re.sub(r'android:background="(?:#[fF]{3,8}|@android:color\/white|@color\/white)"', 'android:background="@color/theme_bg_dark"', l_txt)
-
-              def style_btn(m):
-                  tag_open, attrs, tag_close = m.group(1), m.group(2), m.group(3)
-                  attrs = re.sub(r'android:background(?:Tint)?="[^"]*"', '', attrs)
-                  attrs = re.sub(r'android:textColor="[^"]*"', '', attrs)
-                  attrs += ' android:background="@drawable/btn_rose_gold" android:textColor="@color/btn_dark_label" android:textStyle="bold"'
-                  return tag_open + attrs + tag_close
-
-              l_txt = re.sub(r'(<(?:Button|com\.google\.android\.material\.button\.MaterialButton|androidx\.appcompat\.widget\.AppCompatButton)\b)([^>]*?)(\/?>)', style_btn, l_txt)
-
-              def style_tv(m):
-                  tag_open, attrs, tag_close = m.group(1), m.group(2), m.group(3)
-                  if 'android:textColor=' in attrs:
-                      if any(k in attrs.lower() for k in ["title", "head", "count", "together"]):
-                          attrs = re.sub(r'android:textColor="[^"]*"', 'android:textColor="@color/accent_rose_gold"', attrs)
-                      else:
-                          attrs = re.sub(r'android:textColor="[^"]*"', 'android:textColor="@color/text_primary_cream"', attrs)
-                  else:
-                      attrs += ' android:textColor="@color/text_primary_cream"'
-                  return tag_open + attrs + tag_close
-
-              l_txt = re.sub(r'(<(?:TextView|androidx\.appcompat\.widget\.AppCompatTextView)\b)([^>]*?)(\/?>)', style_tv, l_txt)
-              lf.write_text(l_txt, "utf-8")
-
-          # 7. Jetpack Compose Force Dark Overrides
-          for kf in src_main.rglob("*.kt"):
-              k_txt = kf.read_text("utf-8")
-              orig_k = k_txt
-              k_txt = re.sub(r'darkTheme:\s*Boolean\s*=\s*isSystemInDarkTheme\(\)', 'darkTheme: Boolean = true', k_txt)
-              k_txt = re.sub(r'isSystemInDarkTheme\(\)', 'true', k_txt)
-              if "lightColorScheme(" in k_txt:
-                  k_txt = re.sub(r'background\s*=\s*[^,\)]+', 'background = androidx.compose.ui.graphics.Color(0xFF120E16)', k_txt)
-                  k_txt = re.sub(r'surface\s*=\s*[^,\)]+', 'surface = androidx.compose.ui.graphics.Color(0xFF1C1624)', k_txt)
-                  k_txt = re.sub(r'primary\s*=\s*[^,\)]+', 'primary = androidx.compose.ui.graphics.Color(0xFFE5B899)', k_txt)
-                  k_txt = re.sub(r'onBackground\s*=\s*[^,\)]+', 'onBackground = androidx.compose.ui.graphics.Color(0xFFFAF7F2)', k_txt)
-                  k_txt = re.sub(r'onSurface\s*=\s*[^,\)]+', 'onSurface = androidx.compose.ui.graphics.Color(0xFFFAF7F2)', k_txt)
-                  k_txt = re.sub(r'onPrimary\s*=\s*[^,\)]+', 'onPrimary = androidx.compose.ui.graphics.Color(0xFF120E16)', k_txt)
-              if k_txt != orig_k:
-                  kf.write_text(k_txt, "utf-8")
-
-          with open(os.environ["GITHUB_ENV"], "a") as f:
-              f.write(f"PROJECT_DIR={project.resolve()}\n")
-
-          print("Midnight Velvet Theme successfully applied.")
-          PY
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: gradle assembleDebug --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: TogetherFor-debug-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
